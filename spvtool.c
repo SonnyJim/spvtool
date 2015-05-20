@@ -12,6 +12,10 @@
  * dword 5      = Bytes per pixel maybe?
  * dword 6      = number of frames
  * Frame data = 153600 bytes (320x240x2) + 8 bytes of ?
+ *
+ * Extra bytes observations:
+ * 
+ * 4th byte of extra data on the end of the first frame always matches the 4th byte of the first frame
  */
 
 #define HDR_SIZE (sizeof(int32_t) * 7)
@@ -79,6 +83,7 @@ void read_spvinfo (void)
     fseek (spvfile.fp, 0, SEEK_SET);
 }
 
+/*
 void read_frame (void)
 {
     FILE *output;
@@ -96,7 +101,6 @@ void read_frame (void)
         fprintf (stdout, "Error opening output file for writing\n");
         return;
     }
-    //fprintf (stdout, "Frame size %i, Header size %i\n", FRAME_SIZE, HDR_SIZE);
     fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
     
     fread (frame, 1, FRAME_SIZE, spvfile.fp);
@@ -104,6 +108,7 @@ void read_frame (void)
     free (frame);
     fclose (output);
 }
+*/
 
 //function to dump the 'mystery bits'
 void dump_bits (void)
@@ -120,6 +125,7 @@ void dump_bits (void)
 
     fseek (spvfile.fp, HDR_SIZE + FRAME_SIZE, SEEK_SET);
 
+    fprintf (stdout, "Dumping the 8 mystery bytes\n");
     while (frame_count < spvfile.frames)
     {
         frame_count++;
@@ -147,11 +153,11 @@ void dump_frames (void)
     buffer = malloc (FRAME_SIZE);
     fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
 
+    fprintf (stdout, "Dumping raw frame data\n");
     while (frame_count < spvfile.frames)
     {
         frame_count++;
         sprintf (filename, "frame%i.data", frame_count);
-        //fprintf (stdout, "Writing %s\n", filename);
         output_frame = fopen (filename, "w");
         fread (buffer, 1, FRAME_SIZE, spvfile.fp);
         fwrite (buffer, 1, FRAME_SIZE, output_frame);
@@ -169,16 +175,28 @@ void check_byte (void)
 
     char byte1;
     char byte2;
+    int frame_count;
+    int location;
 
-    fseek (spvfile.fp, HDR_SIZE + 3, SEEK_SET);
-    fread (&byte1, 1, 1, spvfile.fp);
-    
-    fseek (spvfile.fp, HDR_SIZE + FRAME_SIZE + 3, SEEK_SET);
-    fread (&byte2, 1, 1, spvfile.fp);
+    fprintf (stdout, "Checking for 4th byte matches:\n");
 
-    fprintf (stdout, "%x %x\n", byte1, byte2);
-    if (byte1 == byte2)
-        fprintf (stdout, "Bytes match\n");
+    fprintf (stdout, "Frame | B1 | B2 | Offset\n");
+    fprintf (stdout, "------------------------\n");
+    for (frame_count = 0; frame_count < spvfile.frames; frame_count++)
+    {
+        //Seek to the 4th byte of the frame
+        fseek (spvfile.fp, HDR_SIZE + ((FRAME_SIZE + BIT_LEN) * frame_count) + 3, SEEK_SET);
+        fread (&byte1, 1, 1, spvfile.fp);
+        location = ftell (spvfile.fp);
+        //Seek to the 4th byte of the 'extra bytes', the previous call to fread moved the fp one byte
+        fseek (spvfile.fp, FRAME_SIZE - 1, SEEK_CUR);
+        fread (&byte2, 1, 1, spvfile.fp);
+
+        if (byte1 == byte2)
+        {
+            fprintf (stdout, "%05i | %02X | %02X | %06X\n", frame_count + 1, byte1, byte2,location - 1);
+        }
+    }
 }
 
 int main (int argc, char **argv)
@@ -204,7 +222,7 @@ int main (int argc, char **argv)
     //Read info from file
     read_spvinfo ();
     print_spvinfo ();
-    read_frame ();
+//    read_frame ();
     dump_bits ();
     dump_frames ();
     check_byte ();
