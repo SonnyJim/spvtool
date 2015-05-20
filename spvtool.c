@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -53,13 +54,15 @@ void print_spvinfo (void)
     fprintf (stdout, "frames: %li\n", spvfile.frames);
 }
 
-void read_spvinfo (void)
+int read_spvinfo (void)
 {
    
     fseek (spvfile.fp, 0, SEEK_SET);
     //Read type
     fread (spvfile.type, DWORD * 3, 1, spvfile.fp);
-    
+   
+    if (strncmp (spvfile.type, "SPV1", 4) != 0)
+        return 1;
     //Read dimensions
     fread (&spvfile.xres, DWORD, 1, spvfile.fp);
     fread (&spvfile.yres, DWORD, 1, spvfile.fp);
@@ -74,6 +77,8 @@ void read_spvinfo (void)
     fseek (spvfile.fp, 0, SEEK_END);
     spvfile.filesize = ftell (spvfile.fp);
     fseek (spvfile.fp, 0, SEEK_SET);
+    
+    return 0;
 }
 
 /*
@@ -173,6 +178,7 @@ void check_byte (void)
 
     fprintf (stdout, "Checking for 4th byte matches:\n");
 
+    fprintf (stdout, "------------------------\n");
     fprintf (stdout, "Frame | B1 | B2 | Offset\n");
     fprintf (stdout, "------------------------\n");
     for (frame_count = 0; frame_count < spvfile.frames; frame_count++)
@@ -213,7 +219,11 @@ int main (int argc, char **argv)
     }
     
     //Read info from file
-    read_spvinfo ();
+    if (read_spvinfo ())
+    {
+        fprintf (stdout, "Error reading header.  Are you sure it's a SPIKE video file?\n", spvfile.filename);
+        return 1;
+    }
     print_spvinfo ();
 //    read_frame ();
     dump_bits ();
