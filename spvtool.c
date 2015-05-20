@@ -4,17 +4,20 @@
 #include <errno.h>
 
 /* File format:
+ * Header size: 28 bytes
  * dword 0 - 1  = type header (SPV1)
  * dword 2      = Animation frame delay/advance? 0 for no advance
  * dword 3      = xres
  * dword 4      = yres
  * dword 5      = Bytes per pixel maybe?
  * dword 6      = number of frames
- * Frame data = 153600 bytes + 8 bytes of ?
+ * Frame data = 153600 bytes (320x240x2) + 8 bytes of ?
  */
 
 #define HDR_SIZE (sizeof(int32_t) * 7)
 #define FRAME_SIZE ((spvfile.xres * spvfile.yres * spvfile.bpp))
+//Length of mystery bits
+#define BIT_LEN 8
 
 struct spvfile
 {
@@ -25,7 +28,8 @@ struct spvfile
     int32_t yres;
     int32_t bpp;
     long frames;
-} spvfile = {NULL, "", NULL, 0, 0, 0, 0};
+    long filesize;
+} spvfile = {NULL, "", NULL, 0, 0, 0, 0, 0};
 
 void print_usage (void)
 {
@@ -36,6 +40,7 @@ void print_usage (void)
 void print_spvinfo (void)
 {
     fprintf (stdout, "Filename: %s\n", spvfile.filename);
+    fprintf (stdout, "Filesize: %li\n", spvfile.filesize);
     fprintf (stdout, "type: %s\n", spvfile.type);
     fprintf (stdout, "xres: %i\n", spvfile.xres);
     fprintf (stdout, "yres: %i\n", spvfile.yres);
@@ -66,6 +71,12 @@ void read_spvinfo (void)
     fread (buffer, sizeof(buffer), 1, spvfile.fp);
     spvfile.frames = *buffer;
     free (buffer);
+
+    fseek (spvfile.fp, 0, SEEK_END);
+
+    //Get filesize
+    spvfile.filesize = ftell (spvfile.fp);
+    fseek (spvfile.fp, 0, SEEK_SET);
 }
 
 void read_frame (void)
@@ -85,13 +96,89 @@ void read_frame (void)
         fprintf (stdout, "Error opening output file for writing\n");
         return;
     }
-    fprintf (stdout, "Frame size %i, Header size %i\n", FRAME_SIZE, HDR_SIZE);
+    //fprintf (stdout, "Frame size %i, Header size %i\n", FRAME_SIZE, HDR_SIZE);
     fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
     
     fread (frame, 1, FRAME_SIZE, spvfile.fp);
     fwrite (frame, 1, FRAME_SIZE, output);
     free (frame);
     fclose (output);
+}
+
+//function to dump the 'mystery bits'
+void dump_bits (void)
+{
+    FILE *bits;
+    FILE *locations;
+    int *buffer;
+    int location = 0;
+    int frame_count = 0;
+
+    buffer = malloc (BIT_LEN);
+    bits = fopen ("bits.bin", "w");
+    locations = fopen ("locations.txt", "w");
+
+    fseek (spvfile.fp, HDR_SIZE + FRAME_SIZE, SEEK_SET);
+
+    while (frame_count < spvfile.frames)
+    {
+        frame_count++;
+        location = ftell (spvfile.fp);
+        fread (buffer, 1, BIT_LEN, spvfile.fp);
+        fwrite (buffer, 1, BIT_LEN, bits);
+
+        fprintf (locations, "%#x\n", location);
+
+        fseek (spvfile.fp, FRAME_SIZE, SEEK_CUR);
+    }
+
+    free (buffer);
+    fclose (bits);
+    fclose (locations);
+}
+
+void dump_frames (void)
+{
+    FILE *output_frame;
+    char filename[16] = "";
+    int *buffer;
+    int frame_count = 0;
+   
+    buffer = malloc (FRAME_SIZE);
+    fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
+
+    while (frame_count < spvfile.frames)
+    {
+        frame_count++;
+        sprintf (filename, "frame%i.data", frame_count);
+        //fprintf (stdout, "Writing %s\n", filename);
+        output_frame = fopen (filename, "w");
+        fread (buffer, 1, FRAME_SIZE, spvfile.fp);
+        fwrite (buffer, 1, FRAME_SIZE, output_frame);
+        fseek (spvfile.fp, BIT_LEN, SEEK_CUR);
+        fclose (output_frame);
+    }
+    free (buffer);
+}
+
+void check_byte (void)
+{
+    /* Check to see if 4th byte of first frame matches
+     * 4th byte of 'extra bytes'
+     */
+
+    char byte1;
+    char byte2;
+
+    fseek (spvfile.fp, HDR_SIZE + 3, SEEK_SET);
+    fread (&byte1, 1, 1, spvfile.fp);
+    
+    fseek (spvfile.fp, HDR_SIZE + FRAME_SIZE + 3, SEEK_SET);
+    fread (&byte2, 1, 1, spvfile.fp);
+
+    fprintf (stdout, "%x %x\n", byte1, byte2);
+    if (byte1 == byte2)
+        fprintf (stdout, "Bytes match\n");
 }
 
 int main (int argc, char **argv)
@@ -118,6 +205,9 @@ int main (int argc, char **argv)
     read_spvinfo ();
     print_spvinfo ();
     read_frame ();
+    dump_bits ();
+    dump_frames ();
+    check_byte ();
     fclose (spvfile.fp);
     return 0;
 }
