@@ -22,6 +22,7 @@
 #define FRAME_SIZE ((spvfile.xres * spvfile.yres * spvfile.bpp))
 //Length of mystery bits
 #define BIT_LEN 8
+#define DWORD sizeof(int32_t)
 
 struct spvfile
 {
@@ -54,31 +55,23 @@ void print_spvinfo (void)
 
 void read_spvinfo (void)
 {
-    int *buffer;
-    buffer = malloc (sizeof(int32_t));
-    
+   
     fseek (spvfile.fp, 0, SEEK_SET);
     //Read type
-    fread (spvfile.type, sizeof(buffer) * 3, 1, spvfile.fp);
+    fread (spvfile.type, DWORD * 3, 1, spvfile.fp);
     
     //Read dimensions
-    fread (buffer, sizeof(buffer), 1, spvfile.fp);
-    spvfile.xres = *buffer;
-    fread (buffer, sizeof(buffer), 1, spvfile.fp);
-    spvfile.yres = *buffer;
+    fread (&spvfile.xres, DWORD, 1, spvfile.fp);
+    fread (&spvfile.yres, DWORD, 1, spvfile.fp);
  
     //Read bytes per pixel?  Pure guess at this point
-    fread (buffer, sizeof(buffer), 1, spvfile.fp);
-    spvfile.bpp = *buffer;
+    fread (&spvfile.bpp, DWORD, 1, spvfile.fp);
 
     //Read number of frames
-    fread (buffer, sizeof(buffer), 1, spvfile.fp);
-    spvfile.frames = *buffer;
-    free (buffer);
-
-    fseek (spvfile.fp, 0, SEEK_END);
+    fread (&spvfile.frames, DWORD, 1, spvfile.fp);
 
     //Get filesize
+    fseek (spvfile.fp, 0, SEEK_END);
     spvfile.filesize = ftell (spvfile.fp);
     fseek (spvfile.fp, 0, SEEK_SET);
 }
@@ -224,7 +217,7 @@ int main (int argc, char **argv)
     print_spvinfo ();
 //    read_frame ();
     dump_bits ();
-    dump_frames ();
+    //dump_frames ();
     check_byte ();
     fclose (spvfile.fp);
     return 0;
