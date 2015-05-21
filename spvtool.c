@@ -217,36 +217,46 @@ void dump_frames (void)
     free (buffer);
 }
 
+int check_offset (int offset, char byte, int frame_count, int byte_num)
+{
+    char byte1;
+    fseek (spvfile.fp, HDR_SIZE + ((FRAME_SIZE + BIT_LEN) * frame_count) + offset, SEEK_SET);
+    fread (&byte1, 1, 1, spvfile.fp);
+    if (byte1 == byte)
+    {
+            fprintf (stdout, "%05i |  %02X  |   %i\n", frame_count + 1, byte1, byte_num);
+            return 0;
+    }
+    else
+        return 1;
+}
+
 void check_byte (void)
 {
     /* Check to see if 4th byte of first frame matches
      * 4th byte of 'extra bytes'
      */
 
-    char byte1;
-    char byte2;
+    char mystery_bytes[BIT_LEN];
     int frame_count;
-    int location;
+    int i;
+    int offsets[BIT_LEN] = { 0x136, 0x2db, 0x180, 0x3, 0x1CA, 0xCD, 0x41, 0x2F};
 
-    fprintf (stdout, "Checking for 4th byte matches:\n");
+    fprintf (stdout, "Checking for mystery byte matches:\n");
 
     fprintf (stdout, "------------------------\n");
-    fprintf (stdout, "Frame | B1 | B2 | Offset\n");
+    fprintf (stdout, "Frame | Byte | Offset\n");
     fprintf (stdout, "------------------------\n");
     for (frame_count = 0; frame_count < spvfile.frames; frame_count++)
     {
-        //Seek to the 4th byte of the frame
-        fseek (spvfile.fp, HDR_SIZE + ((FRAME_SIZE + BIT_LEN) * frame_count) + 3, SEEK_SET);
-        fread (&byte1, 1, 1, spvfile.fp);
-        location = ftell (spvfile.fp);
-        //Seek to the 4th byte of the 'extra bytes', the previous call to fread moved the fp one byte
-        fseek (spvfile.fp, FRAME_SIZE - 1, SEEK_CUR);
-        fread (&byte2, 1, 1, spvfile.fp);
+        /* Read the 8 extra bytes into mystery_bytes */
+        fseek (spvfile.fp, HDR_SIZE + ((FRAME_SIZE + BIT_LEN) * frame_count), SEEK_SET);
+        fseek (spvfile.fp, FRAME_SIZE, SEEK_CUR);
+        fread (&mystery_bytes, 1, BIT_LEN, spvfile.fp);
 
-        if (byte1 == byte2)
-        {
-            fprintf (stdout, "%05i | %02X | %02X | %06X\n", frame_count + 1, byte1, byte2,location - 1);
-        }
+        //Check each offset for matching byte
+        for (i = 0; i < BIT_LEN; i++)
+            check_offset (offsets[i], mystery_bytes[i], frame_count, i);
     }
 }
 
