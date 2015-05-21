@@ -3,10 +3,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 /* File format:
  * Header size: 28 bytes
- * dword 0 - 1  = type header (SPV1)
+ * dword 0      = type header (SPV1)
+ * dword 1      = ?
  * dword 2      = Animation frame delay/advance? 0 for no advance
  * dword 3      = xres
  * dword 4      = yres
@@ -17,6 +19,7 @@
  * Extra bytes observations:
  * 
  * 4th byte of extra data on the end of the first frame always matches the 4th byte of the first frame
+ * Is also true for frames 1, 133, 280, 494, 530, 613, 696, 722
  */
 
 #define HDR_SIZE (sizeof(int32_t) * 7)
@@ -29,13 +32,14 @@ struct spvfile
 {
     FILE *fp;
     char type[12];
+    char *shortname;
     char *filename;
     int32_t xres;
     int32_t yres;
     int32_t bpp;
     long frames;
     long filesize;
-} spvfile = {NULL, "", NULL, 0, 0, 0, 0, 0};
+} spvfile = {NULL, "", "", NULL, 0, 0, 0, 0, 0};
 
 void print_usage (void)
 {
@@ -46,12 +50,55 @@ void print_usage (void)
 void print_spvinfo (void)
 {
     fprintf (stdout, "Filename: %s\n", spvfile.filename);
+    fprintf (stdout, "Shortname: %s\n", spvfile.shortname);
     fprintf (stdout, "Filesize: %li\n", spvfile.filesize);
     fprintf (stdout, "type: %s\n", spvfile.type);
     fprintf (stdout, "xres: %i\n", spvfile.xres);
     fprintf (stdout, "yres: %i\n", spvfile.yres);
     fprintf (stdout, "bytes per pixel: %i\n", spvfile.bpp);
     fprintf (stdout, "frames: %li\n", spvfile.frames);
+}
+
+//Strip directories and extension off filename
+char * strip_filename (void)
+{
+    char *start, *end;
+    char *stripped;
+    
+    stripped = malloc (strlen (spvfile.filename));
+    if (stripped == NULL)
+    {
+        fprintf (stdout, "Error mallocing stripped filename\n");
+        return NULL;
+    }
+
+    start = strrchr (spvfile.filename, '/');
+    if (start == NULL)
+        start = spvfile.filename;
+    else
+        start++;
+    
+    strcpy (stripped, start);
+
+    end = strrchr (stripped, '.');
+    if (start != NULL)
+        *end = '\0';
+
+    return stripped;
+}
+
+int create_outputdir (void)
+{
+    int ret;
+
+    ret = mkdir (spvfile.shortname, S_IRWXU);
+
+    if (ret)
+    {
+        if (errno == EEXIST)
+            return 0;
+    }
+    return ret;
 }
 
 int read_spvinfo (void)
@@ -78,6 +125,8 @@ int read_spvinfo (void)
     spvfile.filesize = ftell (spvfile.fp);
     fseek (spvfile.fp, 0, SEEK_SET);
     
+    spvfile.shortname = strip_filename ();
+
     return 0;
 }
 
@@ -108,18 +157,21 @@ void read_frame (void)
 }
 */
 
+
 //function to dump the 'mystery bits'
 void dump_bits (void)
 {
     FILE *bits;
-    FILE *locations;
     int *buffer;
-    int location = 0;
     int frame_count = 0;
+    char *bitsname;
+
+    bitsname = malloc (strlen (spvfile.shortname) + strlen ("/bits.bin") + 1);
+    strcpy (bitsname, spvfile.shortname);
+    strcat (bitsname, "/bits.bin\0");
 
     buffer = malloc (BIT_LEN);
-    bits = fopen ("bits.bin", "w");
-    locations = fopen ("locations.txt", "w");
+    bits = fopen (bitsname, "w");
 
     fseek (spvfile.fp, HDR_SIZE + FRAME_SIZE, SEEK_SET);
 
@@ -127,27 +179,25 @@ void dump_bits (void)
     while (frame_count < spvfile.frames)
     {
         frame_count++;
-        location = ftell (spvfile.fp);
         fread (buffer, 1, BIT_LEN, spvfile.fp);
         fwrite (buffer, 1, BIT_LEN, bits);
-
-        fprintf (locations, "%#x\n", location);
 
         fseek (spvfile.fp, FRAME_SIZE, SEEK_CUR);
     }
 
     free (buffer);
     fclose (bits);
-    fclose (locations);
 }
 
 void dump_frames (void)
 {
     FILE *output_frame;
-    char filename[16] = "";
+    char *output_filename;
     int *buffer;
     int frame_count = 0;
    
+    output_filename = malloc (strlen (spvfile.shortname) + strlen ("/frame0000.data") + 1);
+
     buffer = malloc (FRAME_SIZE);
     fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
 
@@ -155,8 +205,8 @@ void dump_frames (void)
     while (frame_count < spvfile.frames)
     {
         frame_count++;
-        sprintf (filename, "frame%i.data", frame_count);
-        output_frame = fopen (filename, "w");
+        sprintf (output_filename, "%s/frame%04i.data", spvfile.shortname, frame_count);
+        output_frame = fopen (output_filename, "w");
         fread (buffer, 1, FRAME_SIZE, spvfile.fp);
         fwrite (buffer, 1, FRAME_SIZE, output_frame);
         fseek (spvfile.fp, BIT_LEN, SEEK_CUR);
@@ -211,7 +261,7 @@ int main (int argc, char **argv)
     spvfile.fp = fopen (spvfile.filename, "r");
 
     if (spvfile.fp != NULL)
-        fprintf (stdout, "Opening %s\n", spvfile.filename);
+        fprintf (stdout, "Opening file\n");
     else
     {
         fprintf (stdout, "Error opening %s for reading\n", spvfile.filename);
@@ -221,13 +271,21 @@ int main (int argc, char **argv)
     //Read info from file
     if (read_spvinfo ())
     {
-        fprintf (stdout, "Error reading header.  Are you sure it's a SPIKE video file?\n", spvfile.filename);
+        fprintf (stdout, "Error reading header.  Are you sure it's a SPIKE video file?\n");
         return 1;
     }
     print_spvinfo ();
-//    read_frame ();
+
+    if (create_outputdir ())
+    {
+        fprintf (stderr, "Error creating output directory %s\n", spvfile.shortname);
+        return 1;
+    }
+    else
+        fprintf (stdout, "Writing output to ./%s\n", spvfile.shortname);
+
     dump_bits ();
-    //dump_frames ();
+    dump_frames ();
     check_byte ();
     fclose (spvfile.fp);
     return 0;
