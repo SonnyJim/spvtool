@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /* File format:
  * Header size: 28 bytes
@@ -44,7 +45,8 @@ struct spvfile
 void print_usage (void)
 {
 	fprintf (stdout, "Usage:\n");
-	fprintf (stdout, "spvtool filename\n");
+	fprintf (stdout, "spvtool [option] filename\n");
+    fprintf (stdout, "-d    Dump individual frames\n");
 }
 
 void print_spvinfo (void)
@@ -250,18 +252,32 @@ void check_byte (void)
 
 int main (int argc, char **argv)
 {
-    if (argc != 2)
+    int output_frames = 0;
+    int c, index;
+
+    while ((c = getopt (argc, argv, "d")) != -1)
     {
-        print_usage ();
-        return 1;
+        switch (c)
+        {
+            case 'd':
+                output_frames = 1;
+                break;
+            default:
+                print_usage ();
+        }
     }
-   
+
     //Open file for reading
-    spvfile.filename = argv[1];
+    for (index = optind; index < argc; index++)
+    {
+        spvfile.filename = argv[index];
+        break;
+    }
+
     spvfile.fp = fopen (spvfile.filename, "r");
 
     if (spvfile.fp != NULL)
-        fprintf (stdout, "Opening file\n");
+        fprintf (stdout, "Opening SPV file\n");
     else
     {
         fprintf (stdout, "Error opening %s for reading\n", spvfile.filename);
@@ -282,10 +298,11 @@ int main (int argc, char **argv)
         return 1;
     }
     else
-        fprintf (stdout, "Writing output to ./%s\n", spvfile.shortname);
+        fprintf (stdout, "Writing output to %s/\n", spvfile.shortname);
 
     dump_bits ();
-    dump_frames ();
+    if (output_frames)
+        dump_frames ();
     check_byte ();
     fclose (spvfile.fp);
     return 0;
