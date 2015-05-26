@@ -6,18 +6,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <openssl/evp.h>
+
 /* File format:
  * Header size: 28 bytes
  * dword 0      = type header (SPV1)
  * dword 1      = ?
- * dword 2      = Animation frame delay/advance? 0 for no advance
+ * dword 2      = vblanks per frame
  * dword 3      = xres
  * dword 4      = yres
  * dword 5      = Bytes per pixel maybe?
  * dword 6      = number of frames
  * Frame data = 153600 bytes (320x240x2) + 8 bytes of ?
  *
- * Extra bytes observations:
+ * Extra bytes observations:  Probably HMAC based frame signature
  * 
  * 4th byte of extra data on the end of the first frame always matches the 4th byte of the first frame
  * Is also true for frames 1, 133, 280, 494, 530, 613, 696, 722
@@ -260,6 +262,35 @@ void check_byte (void)
     }
 }
 
+unsigned char rc4_key[8] = {0xCC, 0xCC, 0, 0, 0, 0, 0, 0};
+unsigned char spv_iv[] = { 0x05, 0x94, 0xA5, 0x38, 0x40, 0xEB, 0x8C, 0x65,
+                           0xCC, 0xA9, 0xFE, 0x65, 0x94, 0x79, 0x85, 0xDF};
+void decode_frame (void)
+{
+    FILE *output_frame;
+    char unsigned *in_frame;
+    char unsigned *out_frame;
+    EVP_CIPHER_CTX ctx;
+    int outl;
+
+    output_frame = fopen ("output_frame.bin", "w");
+    in_frame = malloc (FRAME_SIZE);
+    out_frame = malloc (FRAME_SIZE);
+
+    fseek (spvfile.fp, HDR_SIZE, SEEK_SET);
+    fread (in_frame, FRAME_SIZE, 1, spvfile.fp);
+
+    EVP_CIPHER_CTX_init (&ctx);
+    EVP_DecryptInit_ex (&ctx, EVP_rc4(), 0, rc4_key, spv_iv);
+    EVP_DecryptUpdate (&ctx, out_frame, &outl, in_frame, FRAME_SIZE);
+    fprintf (stdout, "Encrypted %i bytes of data\n", outl);
+    
+    fwrite (out_frame, FRAME_SIZE, 1, output_frame);
+    free (out_frame);
+    free (in_frame);
+    fclose (output_frame);
+}
+
 int main (int argc, char **argv)
 {
     int output_frames = 0;
@@ -293,7 +324,9 @@ int main (int argc, char **argv)
         fprintf (stdout, "Error opening %s for reading\n", spvfile.filename);
         return 1;
     }
-    
+   
+    getchar ();
+
     //Read info from file
     if (read_spvinfo ())
     {
@@ -314,6 +347,7 @@ int main (int argc, char **argv)
     if (output_frames)
         dump_frames ();
     check_byte ();
+    decode_frame ();
     fclose (spvfile.fp);
     return 0;
 }
